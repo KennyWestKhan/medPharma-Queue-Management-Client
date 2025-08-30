@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Medp WebSocket Tester</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        background: #f8fafc;
+      }
+      .container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+      .panel {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        background: #3b82f6;
+        color: white;
+        padding: 20px;
+        text-align: center;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      button {
+        background: #3b82f6;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        margin: 5px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #2563eb;
+      }
+      button.danger {
+        background: #ef4444;
+      }
+      button.danger:hover {
+        background: #dc2626;
+      }
+      button.success {
+        background: #10b981;
+      }
+      button.success:hover {
+        background: #059669;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 8px;
+        margin: 5px 0;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+      .connected {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .disconnected {
+        background: #fecaca;
+        color: #dc2626;
+      }
+      .log {
+        background: #f3f4f6;
+        padding: 15px;
+        border-radius: 4px;
+        height: 300px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+      .event-log {
+        margin: 5px 0;
+        padding: 5px;
+        background: #e5e7eb;
+        border-radius: 3px;
+      }
+      .sent {
+        background: #dbeafe;
+      }
+      .received {
+        background: #dcfce7;
+      }
+      .error {
+        background: #fecaca;
+      }
+      h2 {
+        color: #1e293b;
+        margin-top: 0;
+      }
+      h3 {
+        color: #475569;
+      }
+      .quick-actions {
+        margin: 15px 0;
+      }
+      .quick-actions button {
+        margin-right: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>🏥 Medp WebSocket Connection Tester</h1>
+      <p>
+        Test real-time queue management WebSocket events with mock patient data
+      </p>
+    </div>
+
+    <div class="connection-controls" style="text-align: center; margin: 20px 0">
+      <input
+        type="text"
+        id="serverUrl"
+        placeholder="Server URL"
+        style="width: 300px"
+      />
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" class="danger">Disconnect</button>
+    </div>
+
+    <div id="connectionStatus" class="status disconnected">❌ Disconnected</div>
+
+    <div class="container">
+      <!-- Patient Testing Panel -->
+      <div class="panel">
+        <h2>👤 Patient Testing</h2>
+
+        <h3>Join Patient Room</h3>
+        <label for="patientSelect">Select Existing Patient:</label>
+        <select id="patientSelect" onchange="loadPatientData()">
+          <option value="">-- Select a Mock Patient --</option>
+          <optgroup label="Dr. Prince Bondzie (General Medicine)">
+            <option value="kwame-asante|doc1">
+              Kwame Asante (Waiting - Position #1)
+            </option>
+            <option value="akosua-mensah|doc1">
+              Akosua Mensah (Waiting - Position #2)
+            </option>
+            <option value="kofi-darko|doc1">Kofi Darko (Next)</option>
+          </optgroup>
+          <optgroup label="Dr. Yaw Asamoah (Cardiology)">
+            <option value="kweku-boateng|doc2">
+              Kweku Boateng (Currently Consulting)
+            </option>
+            <option value="efua-addae|doc2">
+              Efua Addae (Waiting - Position #1)
+            </option>
+            <option value="yaw-oppong|doc2">
+              Yaw Oppong (Waiting - Position #2)
+            </option>
+          </optgroup>
+          <optgroup label="Dr. Kiki Smith (Dermatology)">
+            <option value="nana-adjei|doc4">
+              Nana Adjei (Waiting - Position #1)
+            </option>
+            <option value="abena-frimpong|doc4">
+              Abena Frimpong (Waiting - Position #2)
+            </option>
+          </optgroup>
+          <optgroup label="Dr. Jemilu Mohammed (Internal Medicine)">
+            <option value="ibrahim-yakubu|doc5">
+              Ibrahim Yakubu (Waiting - Position #1)
+            </option>
+            <option value="fatima-alhassan|doc5">
+              Fatima Alhassan (Waiting - Position #2)
+            </option>
+            <option value="mohammed-issah|doc5">
+              Mohammed Issah (Waiting - Position #3)
+            </option>
+            <option value="zainab-sulemana|doc5">Zainab Sulemana (Next)</option>
+          </optgroup>
+        </select>
+
+        <label for="patientId">Or Enter Custom Patient ID:</label>
+        <input
+          type="text"
+          id="patientId"
+          placeholder="Patient ID (UUID)"
+          value=""
+        />
+
+        <button onclick="joinPatientRoom()">Join Patient Room</button>
+
+        <h3>Patient Actions</h3>
+        <div class="quick-actions">
+          <button onclick="getPatientStatus()">Get Queue Status</button>
+          <button onclick="getPatientDetails()">Get Patient Details</button>
+          <button onclick="getEstimatedCompletion()">
+            Get Estimated Completion
+          </button>
+          <button onclick="leavePatientRoom()" class="danger">
+            Leave Room
+          </button>
+        </div>
+
+        <h3>Simulate New Patient</h3>
+        <input
+          type="text"
+          id="newPatientName"
+          placeholder="New patient name"
+          value="Test Patient"
+        />
+        <select id="newPatientDoctor">
+          <option value="doc1">Dr. Prince Bondzie</option>
+          <option value="doc2">Dr. Yaw Asamoah</option>
+          <option value="doc3">Dr. Hughes Debazaa</option>
+          <option value="doc4">Dr. Kiki Smith</option>
+          <option value="doc5">Dr. Jemilu Mohammed</option>
+        </select>
+        <button onclick="simulatePatientJoin()" class="success">
+          Add New Patient
+        </button>
+        <button onclick="simulatePatientLeave()" class="danger">
+          Remove Current Patient
+        </button>
+        <!-- <br /> -->
+
+        <input
+          type="text"
+          id="patientDoctorId"
+          placeholder="Doctor ID"
+          value=""
+        />
+      </div>
+
+      <!-- Doctor Testing Panel -->
+      <div class="panel">
+        <h2>👨‍⚕️ Doctor Testing</h2>
+
+        <h3>Join Doctor Room</h3>
+        <select id="doctorId">
+          <option value="doc1">Dr. Prince Bondzie (General Medicine)</option>
+          <option value="doc2">Dr. Yaw Asamoah (Cardiology)</option>
+          <option value="doc3">Dr. Hughes Debazaa (Pediatrics)</option>
+          <option value="doc4">Dr. Kiki Smith (Dermatology)</option>
+          <option value="doc5">Dr. Jemilu Mohammed (Internal Medicine)</option>
+        </select>
+        <button onclick="joinDoctorRoom()">Join Doctor Room</button>
+
+        <h3>Doctor Actions</h3>
+        <div class="quick-actions">
+          <button onclick="toggleDoctorAvailability()" class="success">
+            Toggle Availability
+          </button>
+          <button onclick="leaveDoctorRoom()" class="danger">Leave Room</button>
+        </div>
+
+        <h3>Patient Management</h3>
+        <input
+          type="text"
+          id="managePatientId"
+          placeholder="Patient ID to manage"
+          value="123e4567-e89b-12d3-a456-426614174000"
+        />
+        <select id="newStatus">
+          <option value="waiting">Waiting</option>
+          <option value="next">Next</option>
+          <option value="consulting">Consulting</option>
+          <option value="completed">Completed</option>
+        </select>
+        <button onclick="updatePatientStatus()">Update Patient Status</button>
+      </div>
+    </div>
+
+    <!-- Event Log -->
+    <div class="panel" style="margin-top: 20px">
+      <h2>📋 Event Log</h2>
+      <button onclick="clearLog()">Clear Log</button>
+      <button onclick="exportLog()" class="success">Export Log</button>
+      <button onclick="loadAllDoctorQueues()" class="success">
+        Load All Doctor Queues
+      </button>
+      <div id="eventLog" class="log">Waiting for connection...</div>
+    </div>
+
+    <!-- Quick Reference -->
+    <div class="panel" style="margin-top: 20px">
+      <h2>📚 Quick Reference - Mock Data Structure</h2>
+      <div
+        style="
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 15px;
+          font-size: 12px;
+        "
+      >
+        <div style="background: #f0f9ff; padding: 10px; border-radius: 6px">
+          <strong>🩺 Dr. Prince Bondzie (doc1)</strong><br />
+          General Medicine • Available<br />
+          <em>3 patients: 2 waiting, 1 next</em>
+        </div>
+        <div style="background: #fef2f2; padding: 10px; border-radius: 6px">
+          <strong>❤️ Dr. Yaw Asamoah (doc2)</strong><br />
+          Cardiology • Available<br />
+          <em>3 patients: 2 waiting, 1 consulting</em>
+        </div>
+        <div style="background: #f7fee7; padding: 10px; border-radius: 6px">
+          <strong>👶 Dr. Hughes Debazaa (doc3)</strong><br />
+          Pediatrics • Unavailable<br />
+          <em>2 completed consultations</em>
+        </div>
+        <div style="background: #fef7ff; padding: 10px; border-radius: 6px">
+          <strong>🧴 Dr. Kiki Smith (doc4)</strong><br />
+          Dermatology • Available<br />
+          <em>2 patients waiting</em>
+        </div>
+        <div style="background: #f0fdf4; padding: 10px; border-radius: 6px">
+          <strong>🔬 Dr. Jemilu Mohammed (doc5)</strong><br />
+          Internal Medicine • Available<br />
+          <em>4 patients: 3 waiting, 1 next</em>
+        </div>
+      </div>
+      <div
+        style="
+          margin-top: 15px;
+          padding: 10px;
+          background: #f8fafc;
+          border-radius: 6px;
+        "
+      >
+        <strong>💡 Testing Tips:</strong><br />
+        1. Select a mock patient from dropdown to auto-fill IDs<br />
+        2. Use "Load All Doctor Queues" to see current queue states<br />
+        3. Test status updates with patients marked as 'next' or 'consulting'<br />
+        4. Create new patients to test queue additions<br />
+        5. Watch real-time updates in multiple browser tabs
+      </div>
+    </div>
+
+    <script>
+      const baseURL = "https://1d60e0c0bce6.ngrok-free.app";
+
+      document.getElementById("serverUrl").value = baseURL;
+
+      let socket = null;
+      let isConnected = false;
+      let currentDoctorAvailable = true;
+
+      // Mock patient database for testing
+      const mockPatients = {
+        "kwame-asante": {
+          name: "Kwame Asante",
+          status: "waiting",
+          doctor: "Dr. Prince Bondzie",
+        },
+        "akosua-mensah": {
+          name: "Akosua Mensah",
+          status: "waiting",
+          doctor: "Dr. Prince Bondzie",
+        },
+        "kofi-darko": {
+          name: "Kofi Darko",
+          status: "next",
+          doctor: "Dr. Prince Bondzie",
+        },
+        "kweku-boateng": {
+          name: "Kweku Boateng",
+          status: "consulting",
+          doctor: "Dr. Yaw Asamoah",
+        },
+        "efua-addae": {
+          name: "Efua Addae",
+          status: "waiting",
+          doctor: "Dr. Yaw Asamoah",
+        },
+        "yaw-oppong": {
+          name: "Yaw Oppong",
+          status: "waiting",
+          doctor: "Dr. Yaw Asamoah",
+        },
+        "nana-adjei": {
+          name: "Nana Adjei",
+          status: "waiting",
+          doctor: "Dr. Kiki Smith",
+        },
+        "abena-frimpong": {
+          name: "Abena Frimpong",
+          status: "waiting",
+          doctor: "Dr. Kiki Smith",
+        },
+        "ibrahim-yakubu": {
+          name: "Ibrahim Yakubu",
+          status: "waiting",
+          doctor: "Dr. Jemilu Mohammed",
+        },
+        "fatima-alhassan": {
+          name: "Fatima Alhassan",
+          status: "waiting",
+          doctor: "Dr. Jemilu Mohammed",
+        },
+        "mohammed-issah": {
+          name: "Mohammed Issah",
+          status: "waiting",
+          doctor: "Dr. Jemilu Mohammed",
+        },
+        "zainab-sulemana": {
+          name: "Zainab Sulemana",
+          status: "next",
+          doctor: "Dr. Jemilu Mohammed",
+        },
+      };
+
+      // Load patient data when dropdown selection changes
+      function loadPatientData() {
+        const patientSelect = document.getElementById("patientSelect");
+        const selectedValue = patientSelect.value;
+
+        if (selectedValue) {
+          const [patientKey, doctorId] = selectedValue.split("|");
+          const patient = mockPatients[patientKey];
+
+          if (patient) {
+            // Generate a mock UUID for testing (in real app, this would come from database)
+            const mockUUID = generateMockUUID(patientKey);
+            document.getElementById("patientId").value = mockUUID;
+            document.getElementById("patientDoctorId").value = doctorId;
+
+            logEvent(
+              "INFO",
+              `Loaded patient: ${patient.name} (${patient.status}) with ${patient.doctor}`,
+              "info"
+            );
+          }
+        }
+      }
+
+      // Generate consistent mock UUID for testing
+      function generateMockUUID(patientKey) {
+        // Simple hash to UUID-like string for consistent testing
+        const hash = patientKey.split("").reduce((a, b) => {
+          a = (a << 5) - a + b.charCodeAt(0);
+          return a & a;
+        }, 0);
+
+        const hex = Math.abs(hash).toString(16).padStart(8, "0");
+        return `${hex.substr(0, 8)}-${hex.substr(0, 4)}-4${hex.substr(
+          0,
+          3
+        )}-8${hex.substr(0, 3)}-${hex}${hex.substr(0, 4)}`.substr(0, 36);
+      }
+
+      // Connection Management
+      document.getElementById("connectBtn").onclick = connect;
+      document.getElementById("disconnectBtn").onclick = disconnect;
+
+      function connect() {
+        const serverUrl = document.getElementById("serverUrl").value;
+
+        if (socket) {
+          socket.disconnect();
+        }
+
+        logEvent("SYSTEM", `Connecting to ${serverUrl}...`, "info");
+
+        socket = io(serverUrl, {
+          transports: ["websocket", "polling"],
+          upgrade: true,
+          rememberUpgrade: true,
+        });
+
+        // Connection Events
+        socket.on("connect", () => {
+          isConnected = true;
+          updateConnectionStatus(true);
+          logEvent(
+            "SYSTEM",
+            `✅ Connected! Socket ID: ${socket.id}`,
+            "success"
+          );
+        });
+
+        socket.on("disconnect", (reason) => {
+          isConnected = false;
+          updateConnectionStatus(false);
+          logEvent("SYSTEM", `❌ Disconnected: ${reason}`, "error");
+        });
+
+        socket.on("connect_error", (error) => {
+          logEvent("ERROR", `Connection failed: ${error.message}`, "error");
+        });
+
+        // Medp-specific Events
+        socket.on("queueUpdate", (data) => {
+          logEvent(
+            "RECEIVED",
+            `Queue Update: ${JSON.stringify(data, null, 2)}`,
+            "received"
+          );
+        });
+
+        socket.on("patientStatusUpdate", (data) => {
+          logEvent(
+            "RECEIVED",
+            `Patient Status Update: ${JSON.stringify(data, null, 2)}`,
+            "received"
+          );
+        });
+
+        socket.on("queueChanged", (data) => {
+          logEvent(
+            "RECEIVED",
+            `Queue Changed: ${JSON.stringify(data, null, 2)}`,
+            "received"
+          );
+        });
+
+        socket.on("doctorAvailabilityUpdate", (data) => {
+          logEvent(
+            "RECEIVED",
+            `Doctor Availability: ${JSON.stringify(data, null, 2)}`,
+            "received"
+          );
+        });
+
+        socket.on("patientAdded", (data) => {
+          logEvent(
+            "RECEIVED",
+            `Patient Added: ${JSON.stringify(data, null, 2)}`,
+            "received"
+          );
+        });
+
+        socket.on("patientRemoved", (data) => {
+          logEvent(
+            "RECEIVED",
+            `Patient Removed: ${JSON.stringify(data, null, 2)}`,
+            "received"
+          );
+        });
+
+        socket.on("error", (error) => {
+          logEvent(
+            "ERROR",
+            `Socket Error: ${JSON.stringify(error, null, 2)}`,
+            "error"
+          );
+        });
+      }
+
+      function disconnect() {
+        if (socket) {
+          socket.disconnect();
+          socket = null;
+        }
+      }
+
+      function updateConnectionStatus(connected) {
+        const statusEl = document.getElementById("connectionStatus");
+        if (connected) {
+          statusEl.textContent = "✅ Connected";
+          statusEl.className = "status connected";
+        } else {
+          statusEl.textContent = "❌ Disconnected";
+          statusEl.className = "status disconnected";
+        }
+      }
+
+      // Patient Functions
+      function joinPatientRoom() {
+        if (!socket || !isConnected) {
+          alert("Please connect first!");
+          return;
+        }
+
+        const patientId = document.getElementById("patientId").value;
+
+        if (!patientId) {
+          alert("Please select a patient or enter a patient ID!");
+          return;
+        }
+
+        const data = { patientId };
+        socket.emit("joinPatientRoom", data);
+        logEvent(
+          "SENT",
+          `Join Patient Room: ${JSON.stringify(data, null, 2)}`,
+          "sent"
+        );
+      }
+
+      function leavePatientRoom() {
+        if (!socket || !isConnected) return;
+
+        // We need to get the patient's doctor to determine the room
+        const patientId = document.getElementById("patientId").value;
+        if (!patientId) {
+          alert("Please select a patient first!");
+          return;
+        }
+
+        // Get patient info to determine doctor room
+        fetch(`${baseURL}/api/patients/${patientId}`)
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.success) {
+              const roomId = `doctor_${data.data.doctor.id}`;
+              socket.emit("leaveRoom", { roomId });
+              logEvent(
+                "SENT",
+                `Leave Room: ${roomId} (Patient: ${data.data.name})`,
+                "sent"
+              );
+            } else {
+              logEvent(
+                "ERROR",
+                `Could not find patient to leave room: ${data.message}`,
+                "error"
+              );
+            }
+          })
+          .catch((error) => {
+            logEvent(
+              "ERROR",
+              `Error getting patient info: ${error.message}`,
+              "error"
+            );
+          });
+      }
+
+      function getPatientStatus() {
+        const patientId = document.getElementById("patientId").value;
+        if (!patientId) {
+          alert("Please select a patient or enter a patient ID");
+          return;
+        }
+
+        logEvent("INFO", `Getting status for patient: ${patientId}`, "info");
+
+        fetch(`${baseURL}/api/queue/patient/${patientId}/status`)
+          .then((response) => response.json())
+          .then((data) => {
+            logEvent(
+              "API",
+              `Patient Queue Status: ${JSON.stringify(data, null, 2)}`,
+              "received"
+            );
+          })
+          .catch((error) => {
+            logEvent("ERROR", `API Error: ${error.message}`, "error");
+          });
+      }
+
+      function getPatientDetails() {
+        const patientId = document.getElementById("patientId").value;
+        if (!patientId) {
+          alert("Please select a patient or enter a patient ID");
+          return;
+        }
+
+        logEvent("INFO", `Getting details for patient: ${patientId}`, "info");
+
+        fetch(`${baseURL}/api/patients/${patientId}`)
+          .then((response) => response.json())
+          .then((data) => {
+            logEvent(
+              "API",
+              `Patient Details: ${JSON.stringify(data, null, 2)}`,
+              "received"
+            );
+          })
+          .catch((error) => {
+            logEvent("ERROR", `API Error: ${error.message}`, "error");
+          });
+      }
+
+      function getEstimatedCompletion() {
+        const patientId = document.getElementById("patientId").value;
+        if (!patientId) {
+          alert("Please select a patient or enter a patient ID");
+          return;
+        }
+
+        logEvent(
+          "INFO",
+          `Getting estimated completion for patient: ${patientId}`,
+          "info"
+        );
+
+        fetch(`${baseURL}/api/patients/${patientId}/estimated-completion`)
+          .then((response) => response.json())
+          .then((data) => {
+            logEvent(
+              "API",
+              `Estimated Completion: ${JSON.stringify(data, null, 2)}`,
+              "received"
+            );
+          })
+          .catch((error) => {
+            logEvent("ERROR", `API Error: ${error.message}`, "error");
+          });
+      }
+
+      // Doctor Functions
+      function joinDoctorRoom() {
+        if (!socket || !isConnected) {
+          alert("Please connect first!");
+          return;
+        }
+
+        const doctorId = document.getElementById("doctorId").value;
+
+        const data = { doctorId };
+        socket.emit("joinDoctorRoom", data);
+        logEvent(
+          "SENT",
+          `Join Doctor Room: ${JSON.stringify(data, null, 2)}`,
+          "sent"
+        );
+      }
+
+      function leaveDoctorRoom() {
+        if (!socket || !isConnected) return;
+
+        const doctorId = document.getElementById("doctorId").value;
+        const roomId = `doctor_${doctorId}`;
+
+        socket.emit("leaveRoom", { roomId });
+        logEvent("SENT", `Leave Room: ${roomId}`, "sent");
+      }
+
+      function toggleDoctorAvailability() {
+        if (!socket || !isConnected) {
+          alert("Please connect first!");
+          return;
+        }
+
+        const doctorId = document.getElementById("doctorId").value;
+        currentDoctorAvailable = !currentDoctorAvailable;
+
+        const data = { doctorId, isAvailable: currentDoctorAvailable };
+        socket.emit("updateDoctorAvailability", data);
+        logEvent(
+          "SENT",
+          `Update Doctor Availability: ${JSON.stringify(data, null, 2)}`,
+          "sent"
+        );
+      }
+
+      function updatePatientStatus() {
+        if (!socket || !isConnected) {
+          alert("Please connect first!");
+          return;
+        }
+
+        const patientId = document.getElementById("managePatientId").value;
+        const status = document.getElementById("newStatus").value;
+
+        const data = { patientId, status };
+        socket.emit("updatePatientStatus", data);
+        logEvent(
+          "SENT",
+          `Update Patient Status: ${JSON.stringify(data, null, 2)}`,
+          "sent"
+        );
+      }
+
+      // Simulation Functions
+      async function simulatePatientJoin() {
+        const patientName =
+          document.getElementById("newPatientName").value ||
+          `Test Patient ${Date.now()}`;
+        const doctorId = document.getElementById("newPatientDoctor").value;
+
+        try {
+          const response = await fetch(`${baseURL}/api/patients/add-patient`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: patientName,
+              doctorId,
+            }),
+          });
+
+          const result = await response.json();
+          console.info({ result });
+
+          if (!result.success) {
+            logEvent(
+              "ERROR",
+              `Failed to add patient: ${result.message}`,
+              "error"
+            );
+            return;
+          }
+
+          const { patient, estimatedWaitTime } = result.data;
+
+          // Auto-populate form fields
+          document.getElementById("patientId").value = patient.id;
+          document.getElementById("patientDoctorId").value = patient.doctor_id;
+
+          logEvent(
+            "API",
+            `New Patient Added Successfully: ${JSON.stringify(
+              result,
+              null,
+              2
+            )}`,
+            "success"
+          );
+
+          logEvent(
+            "INFO",
+            `Patient ID: ${patient.id}, Estimated Wait Time: ${estimatedWaitTime} mins`,
+            "info"
+          );
+        } catch (error) {
+          logEvent("ERROR", `Add Patient Error: ${error.message}`, "error");
+        }
+      }
+
+      function simulatePatientLeave() {
+        const patientId = document.getElementById("patientId").value;
+        if (!patientId) {
+          alert("Please select a patient first");
+          return;
+        }
+
+        fetch(`${baseURL}/api/queue/patient/${patientId}`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            reason: "Testing - Patient leaving queue",
+          }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            logEvent(
+              "API",
+              `Patient Removed: ${JSON.stringify(data, null, 2)}`,
+              "success"
+            );
+          })
+          .catch((error) => {
+            logEvent(
+              "ERROR",
+              `Remove Patient Error: ${error.message}`,
+              "error"
+            );
+          });
+      }
+
+      // Logging Functions
+      function logEvent(type, message, category = "info") {
+        const timestamp = new Date().toLocaleTimeString();
+        const logEl = document.getElementById("eventLog");
+        const eventDiv = document.createElement("div");
+        eventDiv.className = `event-log ${category}`;
+        eventDiv.innerHTML = `<strong>[${timestamp}] ${type}:</strong> ${message}`;
+
+        logEl.appendChild(eventDiv);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function clearLog() {
+        document.getElementById("eventLog").innerHTML = "";
+      }
+
+      function exportLog() {
+        const logContent = document.getElementById("eventLog").textContent;
+        const blob = new Blob([logContent], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `medp-websocket-test-${Date.now()}.log`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      function loadAllDoctorQueues() {
+        const doctors = ["doc1", "doc2", "doc3", "doc4", "doc5"];
+        const doctorNames = {
+          doc1: "Dr. Prince Bondzie",
+          doc2: "Dr. Yaw Asamoah",
+          doc3: "Dr. Hughes Debazaa",
+          doc4: "Dr. Kiki Smith",
+          doc5: "Dr. Jemilu Mohammed",
+        };
+
+        logEvent("INFO", "📊 Loading all doctor queues for testing...", "info");
+
+        doctors.forEach((doctorId) => {
+          fetch(`${baseURL}/api/doctors/${doctorId}/queue`)
+            .then((response) => response.json())
+            .then((data) => {
+              if (data.success) {
+                const queueSummary = data.data.queueSummary;
+                logEvent(
+                  "API",
+                  `${doctorNames[doctorId]} Queue: ${queueSummary.total} total (${queueSummary.waiting} waiting, ${queueSummary.consulting} consulting, ${queueSummary.completed} completed)`,
+                  "received"
+                );
+
+                // Log each patient in queue
+                if (data.data.queue.length > 0) {
+                  data.data.queue.forEach((patient) => {
+                    if (patient.status !== "completed") {
+                      logEvent(
+                        "INFO",
+                        `  • ${patient.name} (${patient.status}) - Position: ${
+                          patient.position || "N/A"
+                        }`,
+                        "info"
+                      );
+                    }
+                  });
+                }
+              }
+            })
+            .catch((error) => {
+              logEvent(
+                "ERROR",
+                `Failed to load ${doctorNames[doctorId]} queue: ${error.message}`,
+                "error"
+              );
+            });
+        });
+      }
+
+      // Auto-connect on page load
+      window.onload = function () {
+        logEvent(
+          "SYSTEM",
+          "WebSocket tester loaded. Click Connect to start testing.",
+          "info"
+        );
+      };
+    </script>
+  </body>
+</html>
