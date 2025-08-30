@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "medp-frontend",
+    "name": "MedPharma",
     "slug": "medp-frontend",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#f8f9fa"
     },
     "ios": {
       "supportsTablet": true
