@@ -13,7 +13,7 @@ interface QueueItem {
   patientName: string;
   doctorId: string;
   doctorName: string;
-  status: "waiting" | "in-progress" | "completed";
+  status: "waiting" | "consulting" | "completed";
   timestamp: Date;
 }
 

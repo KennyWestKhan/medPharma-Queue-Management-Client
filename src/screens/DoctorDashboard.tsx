@@ -63,8 +63,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
       const result = await response.json();
 
       const data = result.data || {};
-      console.log(JSON.stringify(data, null, 2));
-      // Set doctor info
+
       if (data.doctor) {
         setDoctorName(data.doctor.name || "");
         setSpecialization(data.doctor.specialization || "");
@@ -109,20 +108,83 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const handleStartConsultation = (patientId: string) => {
-    updateQueueStatus(patientId, "in-progress");
-    Alert.alert(
-      "Consultation Started",
-      "Patient consultation is now in progress."
-    );
+  const handleStartConsultation = async (patientId: string) => {
+    try {
+      setloading(true);
+      const config = getCurrentConfig();
+      const response = await fetch(
+        `${config.baseURL}${API_ENDPOINTS.queue}/${patientId}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: "consulting",
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to update patient status");
+      }
+
+      // Update local state through context
+      updateQueueStatus(patientId, "consulting");
+      // Alert.alert(
+      //   "Consultation Started",
+      //   "Patient consultation is now in progress."
+      // );
+
+      // Refresh queue to get latest data
+      await fetchDoctorQueue();
+    } catch (error) {
+      console.error("Error updating patient status:", error);
+      Alert.alert("Error", "Failed to start consultation. Please try again.");
+    } finally {
+      setloading(false);
+    }
   };
 
-  const handleCompleteConsultation = (patientId: string) => {
-    updateQueueStatus(patientId, "completed");
-    Alert.alert(
-      "Consultation Completed",
-      "Patient consultation has been completed."
-    );
+  const handleCompleteConsultation = async (patientId: string) => {
+    try {
+      setloading(true);
+      const config = getCurrentConfig();
+      const response = await fetch(
+        `${config.baseURL}${API_ENDPOINTS.queue}/${patientId}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: "completed",
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to update patient status");
+      }
+
+      // Update local state through context
+      updateQueueStatus(patientId, "completed");
+      Alert.alert(
+        "Consultation Completed",
+        "Patient consultation has been completed."
+      );
+
+      // Refresh queue to get latest data
+      await fetchDoctorQueue();
+    } catch (error) {
+      console.error("Error updating patient status:", error);
+      Alert.alert(
+        "Error",
+        "Failed to complete consultation. Please try again."
+      );
+    } finally {
+      setloading(false);
+    }
   };
 
   const handleRemovePatient = (patientId: string) => {
@@ -134,12 +196,46 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
         {
           text: "Remove",
           style: "destructive",
-          onPress: () => {
-            removeFromQueue(patientId);
-            Alert.alert(
-              "Patient Removed",
-              "Patient has been removed from the queue."
-            );
+          onPress: async () => {
+            try {
+              setloading(true);
+              const config = getCurrentConfig();
+              const response = await fetch(
+                `${config.baseURL}${API_ENDPOINTS.patients}/${patientId}`,
+                {
+                  method: "DELETE",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    reason: "Removed by doctor from dashboard",
+                  }),
+                }
+              );
+
+              if (!response.ok) {
+                throw new Error("Failed to remove patient");
+              }
+
+              // Update local state/context
+              removeFromQueue(patientId);
+
+              // Refresh the queue to get latest data
+              fetchDoctorQueue();
+
+              // Alert.alert(
+              //   "Patient Removed",
+              //   "Patient has been successfully removed from the queue."
+              // );
+            } catch (error) {
+              console.error("Error removing patient:", error);
+              Alert.alert(
+                "Error",
+                "Failed to remove patient from the queue. Please try again."
+              );
+            } finally {
+              setloading(false);
+            }
           },
         },
       ]
@@ -150,7 +246,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
     switch (status) {
       case "waiting":
         return "#f59e0b";
-      case "in-progress":
+      case "consulting":
         return "#3b82f6";
       case "completed":
         return "#10b981";
@@ -163,7 +259,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
     switch (status) {
       case "waiting":
         return "Waiting";
-      case "in-progress":
+      case "consulting":
         return "In Progress";
       case "completed":
         return "Completed";
@@ -213,7 +309,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
           </TouchableOpacity>
         )}
 
-        {item.status === "in-progress" && (
+        {item.status === "consulting" && (
           <TouchableOpacity
             style={[styles.actionButton, styles.completeButton]}
             onPress={() => handleCompleteConsultation(item.id)}
