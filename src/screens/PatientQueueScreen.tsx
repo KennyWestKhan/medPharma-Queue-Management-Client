@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -6,11 +6,13 @@ import {
   SafeAreaView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import { RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "../../App";
 import { useQueue } from "../context/QueueContext";
+import { API_ENDPOINTS, getCurrentConfig } from "../config/config";
 
 type PatientQueueScreenNavigationProp = StackNavigationProp<
   RootStackParamList,
@@ -36,17 +38,116 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
     estimatedWaitTime: initialEstimatedWaitTime,
   } = route.params;
   const { queue, removeFromQueue } = useQueue();
-
-  const [position, setPosition] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [position, setPosition] = useState(positionInQueue || 0);
   const [estimatedWaitTime, setEstimatedWaitTime] = useState(
     initialEstimatedWaitTime || 0
   );
 
+  const waitTimeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Start wait time countdown (decreases every minute)
   useEffect(() => {
     updateQueuePosition();
-    const interval = setInterval(updateQueuePosition, 5000); // Update every 5 seconds
-    return () => clearInterval(interval);
+
+    // Start the countdown timer if there's a wait time
+    if (estimatedWaitTime > 0) {
+      // Clear any existing interval
+      if (waitTimeIntervalRef.current) {
+        clearInterval(waitTimeIntervalRef.current);
+      }
+
+      // Set up interval to decrease every minute
+      waitTimeIntervalRef.current = setInterval(() => {
+        setEstimatedWaitTime((prevTime) => {
+          const newTime = prevTime - 1;
+
+          if (newTime <= 0) {
+            // Time's up!
+            Alert.alert(
+              "Time's Up! 🔔",
+              "Your estimated wait time has elapsed. You should be called soon!",
+              [{ text: "OK" }]
+            );
+
+            // Clear the interval
+            if (waitTimeIntervalRef.current) {
+              clearInterval(waitTimeIntervalRef.current);
+              waitTimeIntervalRef.current = null;
+            }
+
+            return 0;
+          }
+
+          return newTime;
+        });
+      }, 60000); // 60000ms = 1 minute
+    }
+
+    // Cleanup function
+    return () => {
+      if (waitTimeIntervalRef.current) {
+        clearInterval(waitTimeIntervalRef.current);
+        waitTimeIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  // Update queue position when queue changes
+  useEffect(() => {
+    updateQueuePosition();
   }, [queue]);
+
+  const config = getCurrentConfig();
+
+  const fetchEstimatedWaitTime = async () => {
+    try {
+      const response = await fetch(
+        `${config.baseURL}${API_ENDPOINTS.doctors}/${doctorId}/estimated-wait-time`
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          const newWaitTime = result.data.estimatedWaitTime;
+          setEstimatedWaitTime(newWaitTime);
+
+          // Restart the countdown with new time
+          if (waitTimeIntervalRef.current) {
+            clearInterval(waitTimeIntervalRef.current);
+          }
+
+          if (newWaitTime > 0) {
+            waitTimeIntervalRef.current = setInterval(() => {
+              setEstimatedWaitTime((prevTime) => {
+                const newTime = prevTime - 1;
+
+                if (newTime <= 0) {
+                  Alert.alert(
+                    "Time's Up! 🔔",
+                    "Your estimated wait time has elapsed. You should be called soon!",
+                    [{ text: "OK" }]
+                  );
+
+                  if (waitTimeIntervalRef.current) {
+                    clearInterval(waitTimeIntervalRef.current);
+                    waitTimeIntervalRef.current = null;
+                  }
+
+                  return 0;
+                }
+
+                return newTime;
+              });
+            }, 60000);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching estimated wait time:", error);
+    }
+  };
 
   const updateQueuePosition = () => {
     const doctorQueue = queue
@@ -55,11 +156,53 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
 
     const patientIndex = doctorQueue.findIndex((item) => item.id === patientId);
     if (patientIndex !== -1) {
-      setPosition(patientIndex + 1);
-      // Only update estimated wait time if no initial value was provided from backend
-      if (!initialEstimatedWaitTime) {
-        setEstimatedWaitTime((patientIndex + 1) * 15); // 15 minutes per patient
+      const newPosition = patientIndex + 1;
+      setPosition(newPosition);
+    }
+  };
+
+  const handleRefresh = () => {
+    updateQueuePosition();
+    fetchEstimatedWaitTime();
+  };
+
+  const leaveQueue = async (patientId: string, reason: string) => {
+    try {
+      setLoading(true);
+      console.log("i am here making request");
+      const response = await fetch(
+        `${config.baseURL}${API_ENDPOINTS.patients}/${patientId}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(reason ? { reason } : {}),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        console.log("✅ Removed from queue:", data);
+        return data;
+      } else {
+        console.warn("⚠️ Error:", data);
+        Alert.alert(
+          "Failed to remove you from queue",
+          `${data?.message} Please try again later`,
+          [{ text: "OK" }]
+        );
+        return null;
       }
+    } catch (error) {
+      console.error("❌ Error removing patient:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to fetch doctors"
+      );
+      return null;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -69,9 +212,20 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
       {
         text: "Leave",
         style: "destructive",
-        onPress: () => {
-          removeFromQueue(patientId);
-          navigation.navigate("RoleSelection");
+        onPress: async () => {
+          // if (waitTimeIntervalRef.current) {
+          //   clearInterval(waitTimeIntervalRef.current);
+          // }
+
+          const result = await leaveQueue(patientId, "Left by user");
+
+          if (result) {
+            console.log("✅ Successfully removed:", result);
+            removeFromQueue(patientId);
+            navigation.navigate("RoleSelection");
+          } else {
+            console.warn("⚠️ Failed to remove from queue");
+          }
         },
       },
     ]);
@@ -89,6 +243,34 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
     return "Please wait for your turn";
   };
 
+  const getWaitTimeColor = () => {
+    if (estimatedWaitTime <= 0) return "#059669"; // Green when time is up
+    if (estimatedWaitTime <= 5) return "#dc2626"; // Red for last 5 minutes
+    if (estimatedWaitTime <= 10) return "#d97706"; // Orange for last 10 minutes
+    return "#374151"; // Default gray
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContent}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={styles.loadingText}>Removing you from queue...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContent}>
+          <Text style={styles.errorText}>Error: {error}</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
@@ -99,7 +281,7 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
 
         <View style={styles.statusCard}>
           <View style={styles.positionContainer}>
-            <Text style={styles.positionNumber}>{positionInQueue}</Text>
+            <Text style={styles.positionNumber}>{position}</Text>
             <Text style={styles.positionLabel}>Position in Queue</Text>
           </View>
 
@@ -113,9 +295,13 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
 
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Estimated Wait:</Text>
-              <Text style={styles.infoValue}>
+              <Text style={[styles.infoValue, { color: getWaitTimeColor() }]}>
                 {estimatedWaitTime > 0
-                  ? `${estimatedWaitTime} minutes`
+                  ? `${estimatedWaitTime} minute${
+                      estimatedWaitTime !== 1 ? "s" : ""
+                    }`
+                  : estimatedWaitTime === 0
+                  ? "You should be called soon!"
                   : "Calculating..."}
               </Text>
             </View>
@@ -130,7 +316,7 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.refreshButton}
-            onPress={updateQueuePosition}
+            onPress={handleRefresh}
           >
             <Text style={styles.refreshButtonText}>Refresh Status</Text>
           </TouchableOpacity>
@@ -147,8 +333,8 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
           <Text style={styles.queueInfoTitle}>Queue Information</Text>
           <Text style={styles.queueInfoText}>
             • Please stay in the waiting area{"\n"}• You will be called when
-            it's your turn{"\n"}• Estimated times may vary{"\n"}• You can
-            refresh to see updates
+            it's your turn{"\n"}• Wait time decreases every minute{"\n"}• Tap
+            refresh to update from server
           </Text>
         </View>
       </View>
@@ -160,6 +346,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9fa",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#7f8c8d",
+  },
+  errorText: {
+    fontSize: 16,
+    color: "#e74c3c",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  loadingContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    alignItems: "center",
+    justifyContent: "center",
   },
   content: {
     flex: 1,

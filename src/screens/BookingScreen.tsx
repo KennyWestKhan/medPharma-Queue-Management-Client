@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
+import DoctorSelector from "../components/DoctorSelector";
 import {
   View,
   Text,
@@ -22,23 +23,6 @@ type BookingScreenNavigationProp = StackNavigationProp<
 >;
 type BookingScreenRouteProp = RouteProp<RootStackParamList, "Booking">;
 
-interface Doctor {
-  id: string;
-  name: string;
-  specialization: string;
-  isAvailable: boolean;
-  averageConsultationTime: number;
-  maxDailyPatients: number;
-  consultationFee: number;
-  bio?: string;
-  profileImageUrl?: string;
-  currentPatientCount: number;
-  waitingPatientCount: number;
-  isAtCapacity: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
 interface Props {
   navigation: BookingScreenNavigationProp;
   route: BookingScreenRouteProp;
@@ -50,40 +34,7 @@ const BookingScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const [patientName, setPatientName] = useState("");
   const [selectedDoctor, setSelectedDoctor] = useState("");
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchDoctors();
-  }, []);
-
-  const fetchDoctors = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const config = getCurrentConfig();
-      const response = await fetch(`${config.baseURL}${API_ENDPOINTS.doctors}`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.success && result.data.doctors) {
-        setDoctors(result.data.doctors);
-      } else {
-        throw new Error("Failed to fetch doctors data");
-      }
-    } catch (err) {
-      console.error("Error fetching doctors:", err);
-      setError(err instanceof Error ? err.message : "Failed to fetch doctors");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [bookingLoading, setBookingLoading] = useState(false);
 
   const handleBooking = async () => {
     if (!patientName.trim()) {
@@ -96,12 +47,8 @@ const BookingScreen: React.FC<Props> = ({ navigation, route }) => {
       return;
     }
 
-    const doctor = doctors.find((d) => d.id === selectedDoctor);
-    if (!doctor) return;
-
     try {
-      // Show loading state
-      setLoading(true);
+      setBookingLoading(true);
 
       const config = getCurrentConfig();
       const response = await fetch(
@@ -114,7 +61,6 @@ const BookingScreen: React.FC<Props> = ({ navigation, route }) => {
           body: JSON.stringify({
             name: patientName.trim(),
             doctorId: selectedDoctor,
-            estimatedDuration: doctor.averageConsultationTime || 30, // Use doctor's average time or default to 30
           }),
         }
       );
@@ -129,12 +75,11 @@ const BookingScreen: React.FC<Props> = ({ navigation, route }) => {
       const result = await response.json();
 
       if (result.success) {
-        // Add to local queue context for immediate UI update
         addToQueue({
           patientId: result.data.patient.id,
           patientName: patientName.trim(),
           doctorId: selectedDoctor,
-          doctorName: result.data.patient.doctor_name || doctor.name,
+          doctorName: result.data.patient.doctor_name,
           status: result.data.patient.status || "waiting",
         });
 
@@ -142,7 +87,7 @@ const BookingScreen: React.FC<Props> = ({ navigation, route }) => {
           patientId: result.data.patient.id,
           doctorId: selectedDoctor,
           patientName: patientName.trim(),
-          doctorName: result.data.patient.doctor_name || doctor.name,
+          doctorName: result.data.patient.doctor_name,
           estimatedWaitTime: result.data.estimatedWaitTime,
           positionInQueue: result.data.patient?.positionInQueue || 0,
         });
@@ -158,33 +103,9 @@ const BookingScreen: React.FC<Props> = ({ navigation, route }) => {
           : "Failed to book consultation. Please try again."
       );
     } finally {
-      setLoading(false);
+      setBookingLoading(false);
     }
   };
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-          <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>Loading doctors...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (error) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-          <Text style={styles.errorText}>Error: {error}</Text>
-          <TouchableOpacity onPress={fetchDoctors} style={styles.retryButton}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -212,61 +133,22 @@ const BookingScreen: React.FC<Props> = ({ navigation, route }) => {
             placeholder="Enter your full name"
             placeholderTextColor="#9ca3af"
           />
-
           <Text style={styles.label}>Select Doctor</Text>
-          {doctors.length === 0 ? (
-            <Text style={styles.noDoctorsText}>No doctors available</Text>
-          ) : (
-            doctors.map((doctor) => (
-              <TouchableOpacity
-                key={doctor.id}
-                style={[
-                  styles.doctorOption,
-                  selectedDoctor === doctor.id && styles.doctorOptionSelected,
-                  !doctor.isAvailable && styles.doctorOptionDisabled,
-                ]}
-                onPress={() => setSelectedDoctor(doctor.id)}
-                disabled={!doctor.isAvailable}
-              >
-                <View style={styles.doctorInfo}>
-                  <Text style={styles.doctorName}>{doctor.name}</Text>
-                  <Text style={styles.doctorSpecialization}>
-                    {doctor.specialization}
-                  </Text>
-                  <Text style={styles.doctorDetails}>
-                    Fee: ₵{doctor.consultationFee} •{" "}
-                    {doctor.averageConsultationTime} min
-                  </Text>
-                  <Text style={styles.doctorStatus}>
-                    {doctor.isAvailable ? (
-                      <Text style={styles.availableText}>Available</Text>
-                    ) : (
-                      <Text style={styles.unavailableText}>Unavailable</Text>
-                    )}
-                    {doctor.isAtCapacity && (
-                      <Text style={styles.capacityText}> • At Capacity</Text>
-                    )}
-                  </Text>
-                </View>
-                {selectedDoctor === doctor.id && (
-                  <View style={styles.checkmark}>
-                    <Text style={styles.checkmarkText}>✓</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))
-          )}
+          <DoctorSelector
+            selectedDoctor={selectedDoctor}
+            onSelectDoctor={setSelectedDoctor}
+          />
 
           <TouchableOpacity
             style={[
               styles.bookButton,
-              (!patientName.trim() || !selectedDoctor || loading) &&
+              (!patientName.trim() || !selectedDoctor || bookingLoading) &&
                 styles.bookButtonDisabled,
             ]}
             onPress={handleBooking}
-            disabled={!patientName.trim() || !selectedDoctor || loading}
+            disabled={!patientName.trim() || !selectedDoctor || bookingLoading}
           >
-            {loading ? (
+            {bookingLoading ? (
               <View style={styles.buttonLoadingContainer}>
                 <ActivityIndicator size="small" color="#ffffff" />
                 <Text style={styles.bookButtonText}>Booking...</Text>

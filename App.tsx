@@ -11,6 +11,7 @@ import RoleSelectionScreen from "./src/screens/RoleSelectionScreen";
 import PatientQueueScreen from "./src/screens/PatientQueueScreen";
 import DoctorDashboard from "./src/screens/DoctorDashboard";
 import BookingScreen from "./src/screens/BookingScreen";
+import DoctorProfileScreen from "./src/screens/DoctorProfileScreen";
 
 export interface RootStackParamList {
   RoleSelection: undefined;
@@ -61,6 +62,11 @@ export default function App() {
                 name="PatientQueue"
                 component={PatientQueueScreen}
                 options={{ title: "Your Queue Status" }}
+              />
+              <Stack.Screen
+                name="DoctorSelect"
+                component={DoctorProfileScreen}
+                options={{ title: "Doctors" }}
               />
               <Stack.Screen
                 name="DoctorDashboard"
