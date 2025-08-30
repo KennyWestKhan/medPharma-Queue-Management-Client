@@ -23,11 +23,7 @@ const RoleSelectionScreen: React.FC<Props> = ({ navigation }) => {
     if (userType === "patient") {
       navigation.navigate("Booking", { userType: "patient" });
     } else {
-      // TODO: change. defaulting to first doctor to test
-      navigation.navigate("DoctorDashboard", {
-        doctorId: "doc1",
-        doctorName: "Dr. Prince Bondzie",
-      });
+      navigation.navigate("DoctorSelect");
     }
   };
 

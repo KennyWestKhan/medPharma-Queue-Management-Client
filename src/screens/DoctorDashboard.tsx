@@ -12,6 +12,7 @@ import { StackNavigationProp } from "@react-navigation/stack";
 import { RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "../../App";
 import { useQueue } from "../context/QueueContext";
+import { API_ENDPOINTS, getCurrentConfig } from "../config/config";
 
 type DoctorDashboardNavigationProp = StackNavigationProp<
   RootStackParamList,
@@ -28,20 +29,84 @@ interface Props {
 }
 
 const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
-  const { doctorId, doctorName } = route.params;
+  const { doctorId } = route.params;
+  const [doctorName, setDoctorName] = useState("");
   const { queue, updateQueueStatus, removeFromQueue } = useQueue();
 
+  const [loading, setloading] = useState(false);
   const [doctorQueue, setDoctorQueue] = useState<any[]>([]);
 
   useEffect(() => {
-    updateDoctorQueue();
-  }, [queue, doctorId]);
+    fetchDoctorQueue();
+  }, [doctorId]);
 
-  const updateDoctorQueue = () => {
-    const filteredQueue = queue
-      .filter((item) => item.doctorId === doctorId)
-      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-    setDoctorQueue(filteredQueue);
+  const [specialization, setSpecialization] = useState("");
+  const [averageConsultationTime, setAverageConsultationTime] = useState(0);
+  const [stats, setStats] = useState({
+    total: 0,
+    waiting: 0,
+    consulting: 0,
+    completed: 0,
+    averageWaitTime: 0,
+  });
+
+  const fetchDoctorQueue = async () => {
+    try {
+      setloading(true);
+      const config = getCurrentConfig();
+      const response = await fetch(
+        `${config.baseURL}${API_ENDPOINTS.doctors}/${doctorId}/queue`
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result = await response.json();
+
+      const data = result.data || {};
+      console.log(JSON.stringify(data, null, 2));
+      // Set doctor info
+      if (data.doctor) {
+        setDoctorName(data.doctor.name || "");
+        setSpecialization(data.doctor.specialization || "");
+        setAverageConsultationTime(data.doctor.averageConsultationTime || 0);
+      }
+
+      setDoctorQueue(Array.isArray(data.queue) ? data.queue : []);
+
+      if (data.statistics) {
+        setStats({
+          total: data.statistics.totalPatients || 0,
+          waiting: data.statistics.waitingPatients || 0,
+          consulting: data.statistics.consultingPatients || 0,
+          completed: data.statistics.completedPatients || 0,
+          averageWaitTime: data.statistics.averageWaitTime || 0,
+        });
+      }
+      if (data.queueSummary) {
+        setStats({
+          total: data.queueSummary.total || 0,
+          waiting: data.queueSummary.waiting || 0,
+          consulting: data.queueSummary.consulting || 0,
+          completed: data.queueSummary.completed || 0,
+          averageWaitTime: 0,
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch doctor queue:", err);
+      setDoctorQueue([]);
+      setDoctorName("");
+      setSpecialization("");
+      setAverageConsultationTime(0);
+      setStats({
+        total: 0,
+        waiting: 0,
+        consulting: 0,
+        completed: 0,
+        averageWaitTime: 0,
+      });
+    } finally {
+      setloading(false);
+    }
   };
 
   const handleStartConsultation = (patientId: string) => {
@@ -111,9 +176,12 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
     <View style={styles.patientCard}>
       <View style={styles.patientHeader}>
         <View style={styles.patientInfo}>
-          <Text style={styles.patientName}>{item.patientName}</Text>
+          <Text style={styles.patientName}>{item.name}</Text>
           <Text style={styles.patientTime}>
-            Joined: {item.timestamp.toLocaleTimeString()}
+            Joined:{" "}
+            {item.joined_at
+              ? new Date(item.joined_at).toLocaleTimeString()
+              : "N/A"}
           </Text>
         </View>
         <View style={styles.positionBadge}>
@@ -131,7 +199,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
         <Text
           style={[styles.statusText, { color: getStatusColor(item.status) }]}
         >
-          {getStatusText(item.status)}
+          {getStatusText(item.status)} ({item.waitingTime} mins)
         </Text>
       </View>
 
@@ -164,22 +232,16 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
     </View>
   );
 
-  const waitingCount = doctorQueue.filter(
-    (item) => item.status === "waiting"
-  ).length;
-  const inProgressCount = doctorQueue.filter(
-    (item) => item.status === "in-progress"
-  ).length;
-  const completedCount = doctorQueue.filter(
-    (item) => item.status === "completed"
-  ).length;
+  const waitingCount = stats.waiting;
+  const inProgressCount = stats.consulting;
+  const completedCount = stats.completed;
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Doctor Dashboard</Text>
-          <Text style={styles.subtitle}>{doctorName}</Text>
+          <Text style={styles.title}>{doctorName}</Text>
+          <Text style={styles.subtitle}>{specialization}</Text>
         </View>
 
         <View style={styles.statsContainer}>
@@ -204,7 +266,14 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
           </Text>
         </View>
 
-        {doctorQueue.length === 0 ? (
+        {loading ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>Loading doctor profile...</Text>
+            <Text style={styles.emptyStateSubtext}>
+              Please wait while we fetch the latest queue and doctor details.
+            </Text>
+          </View>
+        ) : doctorQueue.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>No patients in queue</Text>
             <Text style={styles.emptyStateSubtext}>
