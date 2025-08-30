@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
-import { Platform } from "react-native";
+// @ts-ignore
+import { NGROK_URL } from "@env";
 
 // Method 1: Auto-detect using Expo's debugger URL
 const getLocalIP = () => {
@@ -27,9 +28,8 @@ const getLocalIP = () => {
   return "192.168.1.100"; // Your manual fallback
 };
 
-// Method 2: Environment-based configuration
 const getServerConfig = () => {
-  const localIP = /*getLocalIP();*/ "https://1d60e0c0bce6.ngrok-free.app";
+  const localIP = /*getLocalIP();*/ NGROK_URL || ""; // Replace with your ngrok URL or local IP
   console.log("Detected local IP:", localIP);
 
   return {
