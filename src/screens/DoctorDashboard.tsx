@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -33,107 +33,156 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
   const { doctorId } = route.params;
   const [doctorName, setDoctorName] = useState("");
   const { queue, updateQueueStatus, removeFromQueue } = useQueue();
+  const [isRoomJoined, setIsRoomJoined] = useState(false);
 
-  const [loading, setloading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [doctorQueue, setDoctorQueue] = useState<any[]>([]);
 
   const { socket, isConnected } = useSocket();
+  const hasJoinedRoom = useRef(false);
 
   useEffect(() => {
-    if (isConnected && socket) {
-      // Join doctor's room
-      socket.emit("joinDoctorRoom", { doctorId });
+    if (isConnected && socket && !hasJoinedRoom.current) {
+      console.log("Setting up room join for doctor:", doctorId);
 
-      // Listen for queue updates in doctor's private room
-      socket.on("queueChanged", ({ queue }) => {
-        if (Array.isArray(queue)) {
-          setDoctorQueue(queue);
-          updateStats(queue);
-        }
-      });
-
-      // Listen for patient-specific events
-      socket.on("consultationStarted", ({ patient, doctor }) => {
-        if (doctor.id === doctorId) {
-          const updatedQueue = doctorQueue.map((p) =>
-            p.id === patient.id ? { ...p, status: "consulting" } : p
-          );
-          setDoctorQueue(updatedQueue);
-          updateStats(updatedQueue);
-        }
-      });
-
-      socket.on("consultationCompleted", ({ patient, doctor }) => {
-        if (doctor.id === doctorId) {
-          setDoctorQueue((prev) => prev.filter((p) => p.id !== patient.id));
-          updateStats(doctorQueue.filter((p) => p.id !== patient.id));
-        }
-      });
-
-      // Listen for consultation events
-      socket.on("consultationStarted", (data) => {
-        const { patient, doctor } = data;
-        setDoctorQueue((currentQueue) =>
-          currentQueue.map((p) =>
-            p.id === patient.id ? { ...p, status: "consulting" } : p
-          )
-        );
-      });
-
-      socket.on("consultationCompleted", (data) => {
-        const { patient, doctor } = data;
-        setDoctorQueue((currentQueue) =>
-          currentQueue.map((p) =>
-            p.id === patient.id ? { ...p, status: "completed" } : p
-          )
-        );
-      });
-
-      socket.on("patientRemoved", (data) => {
-        const { patient, reason } = data;
-        setDoctorQueue((currentQueue) =>
-          currentQueue.filter((p) => p.id !== patient.id)
-        );
-      });
-
-      // Listen for connection events
-      socket.on("connect", () => {
-        console.log("Socket connected");
-        fetchDoctorQueue(); // Refresh data on reconnect
-      });
-
-      socket.on("reconnected", ({ attemptNumber }) => {
-        console.log(`Reconnected after ${attemptNumber} attempts`);
-        fetchDoctorQueue(); // Refresh data on reconnect
-      });
-
-      // Listen for error events
-      socket.on("error", ({ message, code }) => {
-        Alert.alert("Error", message);
-        if (code === "JOIN_ROOM_ERROR") {
-          // Attempt to rejoin room
-          socket.emit("joinDoctorRoom", { doctorId });
-        }
-      });
-
-      // Initial fetch
-      fetchDoctorQueue();
-
-      // Cleanup function
-      return () => {
-        socket.off("queueChanged");
-        socket.off("consultationStarted");
-        socket.off("consultationCompleted");
-        socket.off("patientRemoved");
-        socket.off("connect");
-        socket.off("reconnected");
-        socket.off("error");
-        socket.emit("leaveRoom", { roomId: `doctor:${doctorId}` });
+      const handleRoomJoined = (data: any) => {
+        console.log("Doctor room join confirmed:", data);
+        setIsRoomJoined(true);
       };
+
+      socket.once("doctorRoomJoined", handleRoomJoined);
+
+      setupSocketEventListeners();
+      socket.emit("joinDoctorRoom", { doctorId });
+      hasJoinedRoom.current = true;
+      fetchDoctorQueue();
     }
 
-    Alert.alert("Error", "Socket not connected or not available");
-  }, [doctorId, isConnected]);
+    return () => {
+      setIsRoomJoined(false);
+      if (socket) {
+        socket.off("doctorRoomJoined");
+      }
+    };
+  }, [isConnected, socket, doctorId]);
+
+  useEffect(() => {
+    if (socket) {
+      const events = [
+        "queueChanged",
+        "doctorRoomJoined",
+        "error",
+        "connect",
+        "disconnect",
+      ];
+
+      events.forEach((event) => {
+        socket.on(event, (data) => {
+          console.log(`[SOCKET EVENT: ${event}]`, data);
+        });
+      });
+
+      return () => {
+        events.forEach((event) => socket.off(event));
+      };
+    }
+  }, [socket]);
+
+  const setupSocketEventListeners = () => {
+    if (!socket) return;
+
+    cleanupSocketListeners();
+
+    socket.on("error", (error) => {
+      console.error("Socket error received:", error);
+      if (error.code === "START_CONSULTATION_ERROR") {
+        Alert.alert("Error", error.message);
+        // If unauthorized, rejoin the room
+        if (error.message.includes("Unauthorized")) {
+          console.log("Rejoining doctor room due to authorization error");
+          socket.emit("joinDoctorRoom", { doctorId });
+        }
+      }
+    });
+
+    // Listen for queue updates in doctor's private room
+    socket.on("queueChanged", ({ queue }) => {
+      console.log("Queue changed event received:", queue);
+      if (Array.isArray(queue)) {
+        setDoctorQueue(queue);
+        updateStats(queue);
+      }
+    });
+
+    // Listen for patient-specific events
+    socket.on("consultationStarted", ({ patient, doctor }) => {
+      console.log("Consultation started:", { patient, doctor });
+      if (doctor.id === doctorId) {
+        setDoctorQueue((prev) =>
+          prev.map((p) =>
+            p.id === patient.id ? { ...p, status: "consulting" } : p
+          )
+        );
+      }
+    });
+
+    socket.on("consultationCompleted", ({ patient, doctor }) => {
+      console.log("Consultation completed:", { patient, doctor });
+      if (doctor.id === doctorId) {
+        setDoctorQueue((prev) => prev.filter((p) => p.id !== patient.id));
+      }
+    });
+
+    socket.on("patientRemoved", (data) => {
+      console.log("Patient removed event:", data);
+      const { patient } = data;
+      setDoctorQueue((prev) => prev.filter((p) => p.id !== patient.id));
+
+      Alert.alert(
+        "Patient Removed",
+        `${patient.name} has been removed from the queue`
+      );
+    });
+
+    socket.on("removePatientFromQueueResponse", (response) => {
+      if (response.success) {
+        console.log("Patient removal confirmed by server");
+      } else {
+        Alert.alert("Error", response.message || "Failed to remove patient");
+      }
+    });
+
+    // Listen for connection events
+    socket.on("connect", () => {
+      console.log("Socket connected, refreshing data");
+      if (hasJoinedRoom.current) {
+        fetchDoctorQueue();
+      }
+    });
+
+    // Listen for error events
+    socket.on("error", ({ message, code }) => {
+      console.error("Socket error:", { message, code });
+      Alert.alert("Error", message);
+      if (code === "JOIN_ROOM_ERROR") {
+        // Attempt to rejoin room
+        hasJoinedRoom.current = false;
+        socket.emit("joinDoctorRoom", { doctorId });
+      }
+    });
+  };
+
+  const cleanupSocketListeners = () => {
+    if (!socket) return;
+
+    socket.off("queueChanged");
+    socket.off("consultationStarted");
+    socket.off("consultationCompleted");
+    socket.off("patientRemoved");
+    socket.off("removePatientFromQueueResponse");
+    socket.off("connect");
+    socket.off("error");
+  };
 
   const [specialization, setSpecialization] = useState("");
   const [averageConsultationTime, setAverageConsultationTime] = useState(0);
@@ -163,7 +212,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
 
   const fetchDoctorQueue = async () => {
     try {
-      setloading(true);
+      setLoading(true);
       const config = getCurrentConfig();
       const response = await fetch(
         `${config.baseURL}${API_ENDPOINTS.doctors}/${doctorId}/queue`
@@ -192,6 +241,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
           averageWaitTime: data.statistics.averageWaitTime || 0,
         });
       }
+
       if (data.queueSummary) {
         setStats({
           total: data.queueSummary.total || 0,
@@ -215,16 +265,29 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
         averageWaitTime: 0,
       });
     } finally {
-      setloading(false);
+      setLoading(false);
     }
   };
 
   const handleStartConsultation = async (patientId: string) => {
     try {
-      setloading(true);
+      setLoading(true);
+
+      if (!isRoomJoined) {
+        Alert.alert("Please wait", "Connecting to server...");
+        return;
+      }
+
       if (!socket || !isConnected) {
         throw new Error("No socket connection available");
       }
+
+      console.log("Socket state before emit:", {
+        socketId: socket.id,
+        connected: socket.connected,
+        doctorId,
+        patientId,
+      });
 
       socket.emit("startConsultation", { patientId, doctorId });
 
@@ -234,13 +297,13 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
       console.error("Error starting consultation:", error);
       Alert.alert("Error", "Failed to start consultation. Please try again.");
     } finally {
-      setloading(false);
+      setLoading(false);
     }
   };
 
   const handleCompleteConsultation = async (patientId: string) => {
     try {
-      setloading(true);
+      setLoading(true);
       if (!socket || !isConnected) {
         throw new Error("No socket connection available");
       }
@@ -249,7 +312,6 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
 
       // Update local state through context
       updateQueueStatus(patientId, "completed");
-      // await fetchDoctorQueue();
     } catch (error) {
       console.error("Error completing consultation:", error);
       Alert.alert(
@@ -257,7 +319,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
         "Failed to complete consultation. Please try again."
       );
     } finally {
-      setloading(false);
+      setLoading(false);
     }
   };
 
@@ -272,27 +334,83 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
           style: "destructive",
           onPress: async () => {
             try {
-              setloading(true);
-              if (!socket || !isConnected) {
-                throw new Error("No socket connection available");
+              setLoading(true);
+
+              console.log("=== STARTING PATIENT REMOVAL ===");
+              console.log("Remove patient - Connection check:", {
+                socketExists: !!socket,
+                isConnected,
+                socketId: socket?.id,
+                connected: socket?.connected,
+                userType: socket?.userType || "unknown",
+                doctorId,
+                patientId,
+                timestamp: new Date().toISOString(),
+              });
+
+              if (!socket) {
+                throw new Error("Socket not available");
               }
 
-              socket.emit("removePatient", {
+              if (!isConnected) {
+                throw new Error("Socket not connected to server");
+              }
+
+              if (!socket.connected) {
+                throw new Error("Socket connection is not active");
+              }
+
+              const removePromise = new Promise<any>((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                  console.log("TIMEOUT: Remove operation timed out");
+                  socket.off("removePatientFromQueueResponse", responseHandler);
+                  reject(
+                    new Error("Remove operation timed out after 15 seconds")
+                  );
+                }, 15000);
+
+                const responseHandler = (response: any) => {
+                  console.log("RESPONSE RECEIVED:", response);
+                  clearTimeout(timeout);
+                  socket.off("removePatientFromQueueResponse", responseHandler);
+
+                  if (response.success) {
+                    console.log("SUCCESS: Patient removal confirmed");
+                    resolve(response);
+                  } else {
+                    console.log(
+                      "ERROR: Server reported failure:",
+                      response.message
+                    );
+                    reject(
+                      new Error(response.message || "Failed to remove patient")
+                    );
+                  }
+                };
+
+                console.log("Setting up response listener...");
+                socket.on("removePatientFromQueueResponse", responseHandler);
+              });
+
+              console.log("Emitting removePatientFromQueue event...");
+              socket.emit("removePatientFromQueue", {
                 patientId,
                 doctorId,
                 reason: "Removed by doctor from dashboard",
               });
 
-              // Local state will be updated through socket events
+              console.log("Waiting for server response...");
+              await removePromise;
+
+              console.log("Updating local state...");
               removeFromQueue(patientId);
-            } catch (error) {
-              console.error("Error removing patient:", error);
-              Alert.alert(
-                "Error",
-                "Failed to remove patient from the queue. Please try again."
-              );
+
+              console.log("=== PATIENT REMOVAL COMPLETED SUCCESSFULLY ===");
+            } catch (error: any) {
+              console.error("=== ERROR IN PATIENT REMOVAL ===", error);
+              Alert.alert("Error", error.message || "Failed to remove patient");
             } finally {
-              setloading(false);
+              setLoading(false);
             }
           },
         },
@@ -362,6 +480,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
           <TouchableOpacity
             style={[styles.actionButton, styles.startButton]}
             onPress={() => handleStartConsultation(item.id)}
+            disabled={loading}
           >
             <Text style={styles.actionButtonText}>Start</Text>
           </TouchableOpacity>
@@ -371,6 +490,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
           <TouchableOpacity
             style={[styles.actionButton, styles.completeButton]}
             onPress={() => handleCompleteConsultation(item.id)}
+            disabled={loading}
           >
             <Text style={styles.actionButtonText}>Complete</Text>
           </TouchableOpacity>
@@ -379,6 +499,7 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
         <TouchableOpacity
           style={[styles.actionButton, styles.removeButton]}
           onPress={() => handleRemovePatient(item.id)}
+          disabled={loading}
         >
           <Text style={styles.actionButtonText}>Remove</Text>
         </TouchableOpacity>
@@ -394,9 +515,20 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>
-            {loading ? "Loading..." : doctorName}
-          </Text>
+          <View style={styles.titleContainer}>
+            <Text style={styles.title}>
+              {loading ? "Loading..." : doctorName}
+            </Text>
+
+            {!loading && (
+              <View
+                style={[
+                  styles.statusDot,
+                  { backgroundColor: isConnected ? "#10b981" : "#ef4444" },
+                ]}
+              />
+            )}
+          </View>
           <Text style={styles.subtitle}>{specialization}</Text>
         </View>
 
@@ -445,6 +577,25 @@ const DoctorDashboard: React.FC<Props> = ({ navigation, route }) => {
             contentContainerStyle={styles.queueList}
           />
         )}
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => {
+            console.log("Socket debug info:", {
+              hasSocket: !!socket,
+              isConnected,
+              socketId: socket?.id,
+              socketConnected: socket?.connected,
+              hasJoinedRoom: hasJoinedRoom.current,
+            });
+
+            // Test emit
+            if (socket) {
+              socket.emit("test", { message: "Test from React Native" });
+            }
+          }}
+        >
+          <Text>Debug Socket</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -473,6 +624,15 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: "#7f8c8d",
+    marginBottom: 8,
+  },
+  connectionStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  connectionText: {
+    fontSize: 12,
+    color: "#6b7280",
   },
   statsContainer: {
     flexDirection: "row",
@@ -590,11 +750,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
+  titleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginLeft: 8,
   },
   statusText: {
     fontSize: 14,
