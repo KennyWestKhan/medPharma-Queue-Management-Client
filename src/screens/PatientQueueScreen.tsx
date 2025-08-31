@@ -12,6 +12,7 @@ import { StackNavigationProp } from "@react-navigation/stack";
 import { RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "../../App";
 import { useQueue } from "../context/QueueContext";
+
 import { useSocket } from "../context/SocketContext";
 import { API_ENDPOINTS, getCurrentConfig } from "../config/config";
 
@@ -58,7 +59,6 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
 
       // Listen for queue updates in patient's private room
       socket.on("queueUpdate", (data) => {
-        console.log("Received queueUpdate:", data);
         if (data && data.position !== undefined) {
           setPosition(data.position);
           setEstimatedWaitTime(data.estimatedWaitTime || 0);
