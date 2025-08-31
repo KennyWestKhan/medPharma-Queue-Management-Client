@@ -59,14 +59,16 @@ export const getCurrentConfig = () => {
 export const SOCKET_CONFIG = {
   transports: ["websocket", "polling"],
   autoConnect: true,
-  timeout: 10000,
+  timeout: 20000,
   forceNew: true,
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionAttempts: 3,
   reconnectionDelayMax: 5000,
   randomizationFactor: 0.5,
-  debug: true,
+  debug: __DEV__,
+  upgrade: true,
+  rememberUpgrade: false,
 };
 
 export const API_ENDPOINTS = {

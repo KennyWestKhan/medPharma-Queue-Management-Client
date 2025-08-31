@@ -271,12 +271,23 @@
           placeholder="Patient ID to manage"
           value="123e4567-e89b-12d3-a456-426614174000"
         />
-        <select id="newStatus">
+        <select id="newStatus" onchange="toggleLateReason()">
           <option value="waiting">Waiting</option>
           <option value="next">Next</option>
           <option value="consulting">Consulting</option>
           <option value="completed">Completed</option>
+          <option value="late">Late</option>
         </select>
+
+        <!-- hidden input for late reason -->
+        <div id="lateReasonContainer" style="display: none; margin-top: 10px">
+          <input
+            type="text"
+            id="lateReason"
+            placeholder="Enter reason for being late"
+          />
+        </div>
+
         <button onclick="updatePatientStatus()">Update Patient Status</button>
       </div>
     </div>
@@ -347,7 +358,7 @@
     </div>
 
     <script>
-      const baseURL = "https://bc1375c7963c.ngrok-free.app";
+      const baseURL = "https://a8f183aa2ae5.ngrok-free.app";
 
       document.getElementById("serverUrl").value = baseURL;
 
@@ -498,19 +509,46 @@
           logEvent("ERROR", `Connection failed: ${error.message}`, "error");
         });
 
-        // Medp-specific Events
+        // Medp-specific Events - Patient Events
         socket.on("queueUpdate", (data) => {
           logEvent(
             "RECEIVED",
-            `Queue Update: ${JSON.stringify(data, null, 2)}`,
+            `Queue Update for Patient:\nPosition: ${data.position}\nEstimated Wait Time: ${data.estimatedWaitTime} minutes`,
             "received"
           );
         });
 
-        socket.on("patientStatusUpdate", (data) => {
+        socket.on("consultationStarted", ({ patient, doctor }) => {
           logEvent(
             "RECEIVED",
-            `Patient Status Update: ${JSON.stringify(data, null, 2)}`,
+            `Consultation Started:\nPatient ID: ${patient.id}\nDoctor ID: ${doctor.id}\nStatus: Consulting`,
+            "received"
+          );
+        });
+
+        socket.on("consultationCompleted", ({ patient, doctor }) => {
+          logEvent(
+            "RECEIVED",
+            `Consultation Completed:\nPatient: ${patient.name}\nDoctor: ${doctor.name}`,
+            "received"
+          );
+        });
+
+        socket.on("patientRemoved", ({ patient, doctor, reason }) => {
+          logEvent(
+            "RECEIVED",
+            `Patient Removed:\nPatient: ${patient.name}\nDoctor: ${
+              doctor.name
+            }\nReason: ${reason || "Not specified"}`,
+            "received"
+          );
+        });
+
+        // Doctor-specific Events
+        socket.on("patientAdded", (data) => {
+          logEvent(
+            "RECEIVED",
+            `New Patient Added to Queue:\nPatient: ${data.patient.name}\nPosition: ${data.position}`,
             "received"
           );
         });
@@ -518,31 +556,17 @@
         socket.on("queueChanged", (data) => {
           logEvent(
             "RECEIVED",
-            `Queue Changed: ${JSON.stringify(data, null, 2)}`,
+            `Queue Updated:\nTotal Patients: ${data.total}\nWaiting: ${data.waiting}\nConsulting: ${data.consulting}`,
             "received"
           );
         });
 
-        socket.on("doctorAvailabilityUpdate", (data) => {
+        socket.on("doctorAvailabilityUpdate", ({ doctor, isAvailable }) => {
           logEvent(
             "RECEIVED",
-            `Doctor Availability: ${JSON.stringify(data, null, 2)}`,
-            "received"
-          );
-        });
-
-        socket.on("patientAdded", (data) => {
-          logEvent(
-            "RECEIVED",
-            `Patient Added: ${JSON.stringify(data, null, 2)}`,
-            "received"
-          );
-        });
-
-        socket.on("patientRemoved", (data) => {
-          logEvent(
-            "RECEIVED",
-            `Patient Removed: ${JSON.stringify(data, null, 2)}`,
+            `Doctor Availability Update:\nDoctor: ${doctor.name}\nStatus: ${
+              isAvailable ? "Available" : "Unavailable"
+            }`,
             "received"
           );
         });
@@ -554,6 +578,32 @@
             "error"
           );
         });
+
+        // Add handlers for both removePatient and removePatientFromQueue events for testing
+        socket.on("patientRemoved", ({ patient, doctor, reason }) => {
+          logEvent(
+            "RECEIVED",
+            `Patient Removed Event:\nPatient ID: ${patient?.id}\nDoctor ID: ${
+              doctor?.id
+            }\nReason: ${reason || "Not specified"}`,
+            "received"
+          );
+        });
+
+        socket.on(
+          "removePatientFromQueueResponse",
+          ({ success, message, patient }) => {
+            if (success) {
+              logEvent(
+                "RECEIVED",
+                `Remove Patient Response:\nSuccess: true\nMessage: ${message}\nPatient ID: ${patient?.id}`,
+                "success"
+              );
+            } else {
+              logEvent("ERROR", `Remove Patient Failed: ${message}`, "error");
+            }
+          }
+        );
       }
 
       function disconnect() {
@@ -582,19 +632,26 @@
         }
 
         const patientId = document.getElementById("patientId").value;
+        const doctorId = document.getElementById("patientDoctorId").value;
 
         if (!patientId) {
           alert("Please select a patient or enter a patient ID!");
           return;
         }
 
-        const data = { patientId };
-        socket.emit("joinPatientRoom", data);
-        logEvent(
-          "SENT",
-          `Join Patient Room: ${JSON.stringify(data, null, 2)}`,
-          "sent"
-        );
+        // Join patient's private room
+        socket.emit("joinPatientRoom", { patientId });
+        logEvent("SENT", `Joined Patient's Private Room: ${patientId}`, "sent");
+
+        // Also join the doctor-patient shared room
+        if (doctorId) {
+          socket.emit("joinDoctorPatientRoom", { patientId, doctorId });
+          logEvent(
+            "SENT",
+            `Joined Doctor-Patient Room: Doctor ${doctorId}, Patient ${patientId}`,
+            "sent"
+          );
+        }
       }
 
       function leavePatientRoom() {
@@ -718,11 +775,19 @@
 
         const doctorId = document.getElementById("doctorId").value;
 
-        const data = { doctorId };
-        socket.emit("joinDoctorRoom", data);
+        // Join doctor's private room for queue updates and availability changes
+        socket.emit("joinDoctorRoom", { doctorId });
+        logEvent("SENT", `Joined Doctor's Private Room: ${doctorId}`, "sent");
+
+        // Get initial queue state
+        socket.emit("getDoctorQueue", { doctorId });
+        logEvent("SENT", `Requested Doctor's Queue State: ${doctorId}`, "sent");
+
+        // Get initial availability state
+        socket.emit("getDoctorAvailability", { doctorId });
         logEvent(
           "SENT",
-          `Join Doctor Room: ${JSON.stringify(data, null, 2)}`,
+          `Requested Doctor's Availability State: ${doctorId}`,
           "sent"
         );
       }
@@ -755,6 +820,12 @@
         );
       }
 
+      function toggleLateReason() {
+        const status = document.getElementById("newStatus").value;
+        const lateContainer = document.getElementById("lateReasonContainer");
+        lateContainer.style.display = status === "late" ? "block" : "none";
+      }
+
       function updatePatientStatus() {
         if (!socket || !isConnected) {
           alert("Please connect first!");
@@ -763,14 +834,35 @@
 
         const patientId = document.getElementById("managePatientId").value;
         const status = document.getElementById("newStatus").value;
+        const doctorId = document.getElementById("doctorId").value;
+        let reason = "";
 
-        const data = { patientId, status };
-        socket.emit("updatePatientStatus", data);
-        logEvent(
-          "SENT",
-          `Update Patient Status: ${JSON.stringify(data, null, 2)}`,
-          "sent"
-        );
+        if (status === "late") {
+          reason = document.getElementById("lateReason").value.trim() || "";
+          if (!reason) {
+            alert("Please enter a reason for late status");
+            return;
+          }
+        }
+
+        if (status === "consulting") {
+          // Use startConsultation event specifically for starting consultations
+          socket.emit("startConsultation", { patientId, doctorId, status });
+          logEvent(
+            "SENT",
+            `Start Consultation for Patient: ${patientId}`,
+            "sent"
+          );
+        } else {
+          // Use updatePatientStatus for other status changes
+          const data = { patientId, status, doctorId, reason };
+          socket.emit("updatePatientStatus", data);
+          logEvent(
+            "SENT",
+            `Update Patient Status: ${JSON.stringify(data, null, 2)}`,
+            "sent"
+          );
+        }
       }
 
       // Simulation Functions

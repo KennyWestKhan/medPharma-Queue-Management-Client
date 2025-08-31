@@ -54,10 +54,11 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
   useEffect(() => {
     if (isConnected && socket) {
       // Join patient's private and doctor-patient rooms
-      socket.emit("joinPatientRoom", { patientId });
+      socket.emit("joinPatientRoom", { patientId, doctorId });
 
       // Listen for queue updates in patient's private room
       socket.on("queueUpdate", (data) => {
+        console.log("Received queueUpdate:", data);
         if (data && data.position !== undefined) {
           setPosition(data.position);
           setEstimatedWaitTime(data.estimatedWaitTime || 0);
@@ -74,6 +75,31 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
           );
         }
       });
+
+      socket.on(
+        "patientStatusUpdated",
+        ({ patient, doctor, status, reason }) => {
+          if (patient.id !== patientId) return;
+
+          setCurrentStatus(status);
+
+          let title, message;
+          const { name = "" } = doctor;
+
+          if (status === "next") {
+            title = "Please get ready";
+            message = `Walk to the door. You're next to see ${name}.`;
+          } else if (status === "late") {
+            title = `${name} is running late`;
+            message = reason;
+          } else {
+            title = "Patient status updated";
+            message = `${name} updated your status to ${status}.`;
+          }
+
+          Alert.alert(title, message);
+        }
+      );
 
       socket.on("consultationCompleted", ({ patient, doctor }) => {
         if (patient.id === patientId) {
@@ -135,10 +161,7 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [isConnected, socket, patientId, doctorId, navigation, patientName]);
 
-  // Start wait time countdown (decreases every minute)
   useEffect(() => {
-    updateQueuePosition();
-
     // Start the countdown timer if there's a wait time
     if (estimatedWaitTime > 0 && currentStatus === "waiting") {
       // Clear any existing interval
@@ -194,6 +217,9 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
 
       if (response.ok) {
         const result = await response.json();
+
+        console.log({ result });
+
         if (result.success) {
           const newWaitTime = result.data.estimatedWaitTime;
           setEstimatedWaitTime(newWaitTime);
@@ -247,8 +273,8 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const handleRefresh = () => {
-    updateQueuePosition();
     fetchEstimatedWaitTime();
+    updateQueuePosition();
   };
 
   const leaveQueue = async (patientId: string, reason: string) => {

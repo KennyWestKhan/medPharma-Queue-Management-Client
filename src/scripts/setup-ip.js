@@ -65,7 +65,7 @@ const getCurrentConfig = () => {
 };
 
 const SOCKET_CONFIG = {
-  transports: ["websocket", "polling"],
+  transports: ["websocket"],
   autoConnect: false,
   timeout: 20000,
   forceNew: true,

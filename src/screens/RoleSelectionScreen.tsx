@@ -23,7 +23,7 @@ const RoleSelectionScreen: React.FC<Props> = ({ navigation }) => {
     if (userType === "patient") {
       navigation.navigate("Booking", { userType: "patient" });
     } else {
-      navigation.navigate("DoctorSelect");
+      navigation.navigate("DoctorSelect", { userType: "doctor" });
     }
   };
 
