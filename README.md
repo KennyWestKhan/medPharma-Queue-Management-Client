@@ -36,6 +36,7 @@ A modern React Native mobile application built with Expo for real-time patient q
 - **Expo CLI** (`npm install -g @expo/cli`)
 - **iOS Simulator** (Mac) or **Android Studio** (Windows/Mac/Linux)
 - **Physical device** (optional, for testing)
+- **ngrok** (for local development with WebSocket support)
 
 ## 🚀 Installation
 
@@ -54,15 +55,41 @@ npx expo install
 
 ### 2. Configuration
 
+#### Set Up ngrok for Local Development
+
+1. Install ngrok:
+
+   ```bash
+   # Using npm
+   npm install -g ngrok
+
+   # Or download from https://ngrok.com/download
+   ```
+
+2. Start ngrok tunnel (after starting your backend server):
+
+   ```bash
+   # If your backend runs on port 3001
+   ngrok http 3001
+   ```
+
+3. Copy the generated HTTPS URL (e.g., https://xxxx-xx-xx-xxx-xx.ngrok-free.app)
+
 #### Update API Endpoint
 
 Edit `src\config\config.ts`:
 
-```typescript
-const localIP=
-  ? "http://YOUR_COMPUTER_IP:3001" // Replace with your ngrok
-  : "https://your-production-api.com";
-```
+````typescript
+export const config = {
+  development: {
+    baseURL: "https://your-ngrok-url.ngrok-free.app", // Replace with your ngrok URL
+    wsURL: "wss://your-ngrok-url.ngrok-free.app",
+  },
+  production: {
+    baseURL: "https://your-production-api.com",
+    wsURL: "wss://your-production-api.com",
+  },
+};
 
 <!-- **Find Your IP Address:** -->
 
@@ -95,9 +122,93 @@ Update `app.json` if needed:
     }
   }
 }
-```
+````
+
+#### WebSocket Testing
+
+The project includes a WebSocket testing tool (`test-websocket.html`) that allows you to:
+
+- Test real-time queue management features
+- Simulate patient and doctor interactions
+- Monitor WebSocket events
+- Debug connection issues
+
+To use the WebSocket tester:
+
+1. Open `test-websocket.html` in your browser
+2. Enter your ngrok URL in the server URL field
+3. Click "Connect" to establish WebSocket connection
+4. Use the patient and doctor testing panels to simulate various scenarios
 
 ## 🏃‍♂️ Running the Application
+
+1. Start the backend server first (follow backend README)
+
+2. Start ngrok tunnel:
+
+   ```bash
+   ngrok http 3001
+   ```
+
+3. Update config with ngrok URL
+
+4. Start the Expo development server:
+
+## 🧪 Testing WebSocket Features
+
+1. Open `test-websocket.html` in your browser
+2. Use the testing panels to:
+   - Simulate patient queue interactions
+   - Test doctor availability updates
+   - Monitor real-time events
+   - Debug connection issues
+
+Key testing scenarios:
+
+- Patient joining/leaving queue
+- Doctor toggling availability
+- Queue position updates
+- Consultation status changes
+- Connection error handling
+
+## 🔌 WebSocket Events Reference
+
+### Patient Events
+
+- `queueUpdate`: Position and wait time updates
+- `consultationStarted`: Doctor ready to see patient
+- `consultationCompleted`: Consultation finished
+- `patientRemoved`: Removed from queue
+
+### Doctor Events
+
+- `patientAdded`: New patient joined queue
+- `queueChanged`: Queue status changes
+- `doctorAvailabilityUpdate`: Availability status changes
+
+## 🚦 Error Handling
+
+The application includes robust error handling for:
+
+- WebSocket connection issues
+- Network connectivity problems
+- Server errors
+- Invalid queue operations
+
+Error recovery strategies:
+
+- Automatic reconnection attempts
+- Offline mode support
+- Graceful degradation
+- User-friendly error messages
+
+## 📝 Development Notes
+
+- Always test WebSocket features using the provided tester
+- Monitor ngrok status for connection issues
+- Check browser console for detailed error messages
+- Use mock data for testing edge cases
+- Remember to update ngrok URL after tunnel restarts
 
 ### Development Mode
 
