@@ -11,8 +11,8 @@ const getLocalIP = () => {
   }
 
   // Fallback to manifest URL parsing
-  if (__DEV__ && Constants.expoConfig?.debuggerHost) {
-    return Constants.expoConfig.debuggerHost.split(":")[0];
+  if (__DEV__ && (Constants.manifest as any)?.debuggerHost) {
+    return (Constants.manifest as any).debuggerHost.split(":")[0];
   }
 
   // Another fallback using the manifest URL
@@ -57,13 +57,16 @@ export const getCurrentConfig = () => {
 };
 
 export const SOCKET_CONFIG = {
-  transports: ["websocket" /*, "polling"*/],
-  autoConnect: false,
-  timeout: 20000,
+  transports: ["websocket", "polling"],
+  autoConnect: true,
+  timeout: 10000,
   forceNew: true,
   reconnection: true,
   reconnectionDelay: 1000,
-  reconnectionAttempts: 5,
+  reconnectionAttempts: 3,
+  reconnectionDelayMax: 5000,
+  randomizationFactor: 0.5,
+  debug: true,
 };
 
 export const API_ENDPOINTS = {
