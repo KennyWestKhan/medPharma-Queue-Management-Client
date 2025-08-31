@@ -12,6 +12,7 @@ import { StackNavigationProp } from "@react-navigation/stack";
 import { RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "../../App";
 import { useQueue } from "../context/QueueContext";
+import { useSocket } from "../context/SocketContext";
 import { API_ENDPOINTS, getCurrentConfig } from "../config/config";
 
 type PatientQueueScreenNavigationProp = StackNavigationProp<
@@ -46,13 +47,100 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
   );
 
   const waitTimeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [currentStatus, setCurrentStatus] = useState("waiting");
+  const { socket, isConnected } = useSocket();
+
+  // Socket connection and event listeners
+  useEffect(() => {
+    if (isConnected && socket) {
+      // Join patient's private and doctor-patient rooms
+      socket.emit("joinPatientRoom", { patientId });
+
+      // Listen for queue updates in patient's private room
+      socket.on("queueUpdate", (data) => {
+        if (data && data.position !== undefined) {
+          setPosition(data.position);
+          setEstimatedWaitTime(data.estimatedWaitTime || 0);
+        }
+      });
+
+      // Listen for consultation status updates
+      socket.on("consultationStarted", ({ patient, doctor }) => {
+        if (patient.id === patientId) {
+          setCurrentStatus("consulting");
+          Alert.alert(
+            "Consultation Starting",
+            `Dr. ${doctor.name} is ready to see you now.`
+          );
+        }
+      });
+
+      socket.on("consultationCompleted", ({ patient, doctor }) => {
+        if (patient.id === patientId) {
+          setCurrentStatus("completed");
+          Alert.alert(
+            "Consultation Completed",
+            `Your consultation with Dr. ${doctor.name} has been completed.`
+          );
+          navigation.replace("ConsultationComplete", {
+            doctorName: doctor.name,
+            patientName,
+          });
+        }
+      });
+
+      socket.on("patientRemoved", ({ patient, doctor, reason }) => {
+        if (patient.id === patientId) {
+          setCurrentStatus("removed");
+          Alert.alert(
+            "Removed from Queue",
+            `You have been removed from Dr. ${doctor.name}'s queue${
+              reason ? `\nReason: ${reason}` : ""
+            }`
+          );
+          navigation.reset({
+            index: 0,
+            routes: [{ name: "RoleSelection" }],
+          });
+        }
+      });
+
+      // Cleanup function
+      return () => {
+        socket.off("queueUpdate");
+        socket.off("consultationStarted");
+        socket.off("consultationCompleted");
+        socket.off("patientRemoved");
+      };
+    } else {
+      Alert.alert(
+        "Connection Issue 📡",
+        "We're having trouble maintaining a live connection to update your queue status. " +
+          "Don't worry - you haven't lost your place! You can:\n\n" +
+          "• Stay on this screen - we'll keep trying to reconnect\n" +
+          "• Use the Refresh button to check your status\n" +
+          "• We'll still call your name when it's your turn",
+        [
+          {
+            text: "Got it",
+            style: "default",
+          },
+          {
+            text: "Refresh Now",
+            onPress: handleRefresh,
+            style: "cancel",
+          },
+        ]
+      );
+    }
+  }, [isConnected, socket, patientId, doctorId, navigation, patientName]);
 
   // Start wait time countdown (decreases every minute)
   useEffect(() => {
     updateQueuePosition();
 
     // Start the countdown timer if there's a wait time
-    if (estimatedWaitTime > 0) {
+    if (estimatedWaitTime > 0 && currentStatus === "waiting") {
       // Clear any existing interval
       if (waitTimeIntervalRef.current) {
         clearInterval(waitTimeIntervalRef.current);
@@ -64,14 +152,12 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
           const newTime = prevTime - 1;
 
           if (newTime <= 0) {
-            // Time's up!
             Alert.alert(
               "Time's Up! 🔔",
               "Your estimated wait time has elapsed. You should be called soon!",
               [{ text: "OK" }]
             );
 
-            // Clear the interval
             if (waitTimeIntervalRef.current) {
               clearInterval(waitTimeIntervalRef.current);
               waitTimeIntervalRef.current = null;
@@ -94,7 +180,6 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
     };
   }, []);
 
-  // Update queue position when queue changes
   useEffect(() => {
     updateQueuePosition();
   }, [queue]);
@@ -184,10 +269,10 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
       const data = await response.json();
 
       if (response.ok) {
-        console.log("✅ Removed from queue:", data);
+        console.log("Removed from queue:", data);
         return data;
       } else {
-        console.warn("⚠️ Error:", data);
+        console.warn("Error:", data);
         Alert.alert(
           "Failed to remove you from queue",
           `${data?.message} Please try again later`,
@@ -196,7 +281,7 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
         return null;
       }
     } catch (error) {
-      console.error("❌ Error removing patient:", error);
+      console.error("Error removing patient:", error);
       setError(
         error instanceof Error ? error.message : "Failed to fetch doctors"
       );
@@ -220,30 +305,53 @@ const PatientQueueScreen: React.FC<Props> = ({ navigation, route }) => {
           const result = await leaveQueue(patientId, "Left by user");
 
           if (result) {
-            console.log("✅ Successfully removed:", result);
+            console.log("Successfully removed:", result);
             removeFromQueue(patientId);
-            navigation.navigate("RoleSelection");
+            console.log("going back");
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "RoleSelection" }],
+            });
           } else {
-            console.warn("⚠️ Failed to remove from queue");
+            console.warn("Failed to remove from queue");
           }
         },
       },
     ]);
   };
 
-  const getStatusColor = () => {
-    if (position === 1) return "#059669"; // Green for next
-    if (position <= 3) return "#d97706"; // Orange for soon
-    return "#6b7280"; // Gray for waiting
+  const getStatusText = () => {
+    switch (currentStatus) {
+      case "consulting":
+        return "In consultation";
+      case "completed":
+        return "Consultation completed";
+      case "removed":
+        return "Removed from queue";
+      default:
+        if (position === 1) return "You are next!";
+        if (position <= 3) return "You will be called soon";
+        return "Please wait for your turn";
+    }
   };
 
-  const getStatusText = () => {
-    if (position === 1) return "You are next!";
-    if (position <= 3) return "You will be called soon";
-    return "Please wait for your turn";
+  const getStatusColor = () => {
+    switch (currentStatus) {
+      case "consulting":
+        return "#2563eb"; // Blue
+      case "completed":
+        return "#059669"; // Green
+      case "removed":
+        return "#dc2626"; // Red
+      default:
+        if (position === 1) return "#059669"; // Green for next
+        if (position <= 3) return "#d97706"; // Orange for soon
+        return "#6b7280"; // Gray for waiting
+    }
   };
 
   const getWaitTimeColor = () => {
+    if (currentStatus !== "waiting") return getStatusColor();
     if (estimatedWaitTime <= 0) return "#059669"; // Green when time is up
     if (estimatedWaitTime <= 5) return "#dc2626"; // Red for last 5 minutes
     if (estimatedWaitTime <= 10) return "#d97706"; // Orange for last 10 minutes
