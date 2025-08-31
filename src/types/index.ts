@@ -8,7 +8,7 @@ export interface Doctor {
 export interface Patient {
   id: string;
   name: string;
-  status: "waiting" | "consulting" | "completed";
+  status: "waiting" | "consulting" | "completed" | "late";
   joined_at: string;
   waitingTime: number;
 }
