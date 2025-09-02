@@ -83,6 +83,8 @@ const BookingScreen: React.FC<Props> = ({ navigation, route }) => {
           status: result.data.patient.status || "waiting",
         });
 
+        console.log("Patient added to queue:", result.data.patient);
+
         navigation.navigate("PatientQueue", {
           patientId: result.data.patient.id,
           doctorId: selectedDoctor,
